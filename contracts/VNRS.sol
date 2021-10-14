@@ -101,11 +101,20 @@ contract VNRS is Storage, Admin, Constants, Getters {
                 expiration: rd.vr.expiration.add(block.timestamp),
                 status: RegisteredRecordStatus.Open
             });
+            emit LogRegisteredVanityRecord(
+                rd.vr.name,
+                msg.sender,
+                block.number,
+                registeredVanityRecords[rd.vr.name].expiration,
+                RegisteredRecordStatus.Open
+            );
         }
     }
 
     function commitRegistration(bytes32 hash) public {
+        require(pendingCommits[hash] == 0, "registration hash already committed");
         pendingCommits[hash] = block.number;
+        emit LogHashCommitted(msg.sender, hash);
     }
 
     function claimExpiredDomainAmount(bytes32 name)
@@ -129,6 +138,7 @@ contract VNRS is Storage, Admin, Constants, Getters {
             activeTime: 0,
             expiration: 0
         });
+        emit LogUserClaimedExpiredDomain(msg.sender, name, record.lockedAmount);
     }
 
     function extendDomainTime(bytes calldata data)
@@ -249,6 +259,13 @@ contract VNRS is Storage, Admin, Constants, Getters {
         record.status = RegisteredRecordStatus.Active;
         registeredVanityRecords[name] = record;
         registrationRequests[name] = 0;
+        emit LogUserActiveVanityRecord(
+            msg.sender,
+            amount,
+            fee,
+            block.timestamp,
+            userActiveVanityRecords[msg.sender][name].expiration
+        );
     }
 
     function _getVanityNameLength(bytes32 name) private pure returns (uint256) {

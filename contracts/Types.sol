@@ -42,4 +42,10 @@ contract Types {
         uint256 activeTime;
         uint256 expiration;
     }
+
+    // ============ Events ============
+    event LogRegisteredVanityRecord(bytes32 indexed name, address indexed user, uint256 activeTime, uint256 expiration, RegisteredRecordStatus status);
+    event LogUserActiveVanityRecord(address indexed user, uint256 lockedAmount, uint256 feePaid, uint256 activeTime, uint256 expiration);
+    event LogHashCommitted(address indexed user, bytes32 hash);
+    event LogUserClaimedExpiredDomain(address indexed user, bytes32 name, uint256 unlockedAmount);
 }

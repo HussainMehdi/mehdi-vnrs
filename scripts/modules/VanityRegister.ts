@@ -17,6 +17,7 @@ import {
   EIP712_REGISTRATION_STRUCT,
   EIP712_REGISTRATION_STRUCT_STRING,
 } from "../lib/constants";
+import { SignedSolidityVanityRecord, SolidityVanityRecord, VanityRecord } from "../lib/types";
 
 export class VanityRegister {
   private web3: Web3;
@@ -29,7 +30,7 @@ export class VanityRegister {
     this.address = address;
   }
 
-  public toSolidityByteVanityRecord(vanityRecord: any): any {
+  public toSolidityByteVanityRecord(vanityRecord: SignedSolidityVanityRecord): string {
     const oa = this.web3.eth.abi.encodeParameters(
       EIP712_REGISTRATION_SIGNATURE_TYPE_ARR,
       [
@@ -52,7 +53,7 @@ export class VanityRegister {
     };
   }
 
-  public async getSignedVanityStruct(vrs: any): Promise<any> {
+  public async getSignedVanityStruct(vrs: SolidityVanityRecord): Promise<SignedSolidityVanityRecord> {
     const data = {
       types: {
         EIP712Domain: EIP712_DOMAIN_STRUCT,
@@ -79,16 +80,16 @@ export class VanityRegister {
 
   // ============ Private Helper Functions ============
 
-  public vanityRecordToSolidity(vanityRecord: any): any {
+  public vanityRecordToSolidity(vanityRecord: VanityRecord): SolidityVanityRecord {
     return {
       name: this.getVanityRegistrationName(vanityRecord),
       salt: vanityRecord.salt.toFixed(0),
       user: vanityRecord.user,
       expiration: vanityRecord.expiration.toFixed(0),
-    };
+    } as SolidityVanityRecord;
   }
 
-  public getVanityRegistrationName(vanityRecord: any): string {
+  private getVanityRegistrationName(vanityRecord: VanityRecord): string {
     return Web3.utils.asciiToHex(vanityRecord.name);
   }
 
@@ -97,7 +98,7 @@ export class VanityRegister {
   /**
    * Returns the final signable EIP712 hash for approving an vanityRecord.
    */
-  public getVanityRecordHash(vanityRecord: any): string {
+  public getVanityRecordHash(vanityRecord: VanityRecord): string {
     const structHash = Web3.utils.soliditySha3(
       { t: "bytes32", v: hashString(EIP712_REGISTRATION_STRUCT_STRING) || "" },
       { t: "bytes32", v: this.getVanityRegistrationName(vanityRecord) },

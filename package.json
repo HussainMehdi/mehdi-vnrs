@@ -8,10 +8,10 @@
   "private": true,
   "scripts": {
     "build": "hardhat compile",
-    "test": "hardhat test",
+    "test": "TEST=true hardhat test",
     "test:dev": "chmod +x test_dev.sh && ./test_dev.sh",
     "dev:node": "hardhat node",
-    "coverage": "hardhat coverage",
+    "coverage": "COVERAGE=true hardhat coverage",
     "lint:ts": "eslint '**/*.{js,ts}' --fix",
     "lint:sol": "npx solhint 'contracts/**/*.sol' --fix",
     "pretty": "npx prettier '**/*.{json,sol,md,ts}' --write",
@@ -56,7 +56,9 @@
     "typescript": "^4.3.5",
     "web3": "^1.6.0"
   },
-  "dependencies": {},
+  "dependencies": {
+    "chai-as-promised": "^7.1.1"
+  },
   "engines": {
     "node": ">=8.3.0"
   }
