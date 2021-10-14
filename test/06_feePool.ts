@@ -15,10 +15,10 @@ const defaultRecord = {
   name: "ABAG",
   salt: new BigNumber(98765),
   user: "0x0000000000000000000000000000000000000000",
-  expiration: new BigNumber("30"),
+  expiration: new BigNumber("50"),
 } as VanityRecord;
 
-describe("ActivateVanityDomain-INIT", function () {
+describe("ClaimExpiredDomain-INIT", function () {
   it("should initialize offchain helpers", async () => {
     if (!evm) {
       evm = new EVM(ethers.provider);
@@ -28,7 +28,7 @@ describe("ActivateVanityDomain-INIT", function () {
     vreg = new VanityRegister(networkChainId, vnrsAddr);
   });
 });
-describe("ActivateVanityDomain", function () {
+describe("ClaimExpiredDomain", function () {
   beforeEach(function () {
     if (!evm) {
       evm = new EVM(ethers.provider);
@@ -42,13 +42,17 @@ describe("ActivateVanityDomain", function () {
     }
     evm.popSnapshot();
   });
-  it("should activate registered VanityRegistration successfully", async () => {
+  it("fee should get transferred to feePool address", async () => {
+    const feePoolAddr = signers[8].address;
     defaultRecord.user = signers[0].address;
     const offchainHash = vreg.getVanityRecordHash(defaultRecord);
     const VNRS = (await ethers.getContractFactory("VNRS")).attach(vnrsAddr);
     const TERC20 = (await ethers.getContractFactory("TestERC20")).attach(
       erc20Addr
     );
+
+    await (await VNRS.setFeePool(feePoolAddr)).wait();
+
     const commitRegistrationResp = await (
       await VNRS.commitRegistration(offchainHash)
     ).wait();
@@ -77,12 +81,9 @@ describe("ActivateVanityDomain", function () {
       )
     ).wait();
 
-    const domainStatus = await VNRS.getDomainStatus(
-      new Web3().eth.abi.encodeParameter(
-        "bytes32",
-        Web3.utils.fromAscii(defaultRecord.name)
-      )
-    );
+    const aliceBal = await TERC20.balanceOf(defaultRecord.user);
+    const feePoolBal = await TERC20.balanceOf(feePoolAddr);
+    const vnrsBal = await TERC20.balanceOf(vnrsAddr);
 
     expect(commitRegistrationResp.events[0].event).to.be.equal(
       "LogHashCommitted"
@@ -93,61 +94,23 @@ describe("ActivateVanityDomain", function () {
     expect(JSON.stringify(aliceActivationResp.events)).to.be.contains(
       "LogUserActiveVanityRecord"
     );
-    expect(domainStatus).to.be.equal(1);
+    expect(new BigNumber(+aliceBal).shiftedBy(-18).toString()).to.be.equal(
+      "191.92"
+    );
+    expect(new BigNumber(+feePoolBal).shiftedBy(-18).toString()).to.be.equal(
+      "0.08"
+    );
+    expect(new BigNumber(+vnrsBal).shiftedBy(-18).toString()).to.be.equal("8");
   });
-
-  it("fails if alice does not approve ERC20", async () => {
-    let err = "";
-    const alice = signers[0].address;
-    try {
-      defaultRecord.user = alice;
-      const offchainHash = vreg.getVanityRecordHash(defaultRecord);
-      const VNRS = (await ethers.getContractFactory("VNRS")).attach(vnrsAddr);
-      const TERC20 = (await ethers.getContractFactory("TestERC20")).attach(
-        erc20Addr
-      );
-      const commitRegistrationResp = await (
-        await VNRS.commitRegistration(offchainHash)
-      ).wait();
-
-      const solidityStruct = vreg.vanityRecordToSolidity(defaultRecord);
-      const typedSig = await vreg.getSignedVanityStruct(solidityStruct);
-      const td = vreg.toSolidityByteVanityRecord(typedSig);
-      const registerVanityDomainResp = await (
-        await VNRS.registerVanityDomain(td)
-      ).wait();
-
-      await evm.mineNBlock(21);
-
-      await TERC20.mint(alice, new BigNumber(200).shiftedBy(18).toFixed(0));
-
-      expect(commitRegistrationResp.events[0].event).to.be.equal(
-        "LogHashCommitted"
-      );
-      expect(registerVanityDomainResp.events[0].event).to.be.equal(
-        "LogRegisteredVanityRecord"
-      );
-      await (
-        await VNRS.activateVanityDomain(
-          new Web3().eth.abi.encodeParameter(
-            "bytes32",
-            Web3.utils.fromAscii(defaultRecord.name)
-          )
-        )
-      ).wait();
-    } catch (e) {
-      err = (e as any).toString();
-    }
-    expect(err).to.be.contains("ERC20: transfer amount exceeds allowance");
-  });
-
-  it("should extend registered VanityRegistration successfully", async () => {
+  it("fee should will be kept in primary contract if feePool address == 0", async () => {
+    const feePoolAddr = signers[8].address;
     defaultRecord.user = signers[0].address;
     const offchainHash = vreg.getVanityRecordHash(defaultRecord);
     const VNRS = (await ethers.getContractFactory("VNRS")).attach(vnrsAddr);
     const TERC20 = (await ethers.getContractFactory("TestERC20")).attach(
       erc20Addr
     );
+
     const commitRegistrationResp = await (
       await VNRS.commitRegistration(offchainHash)
     ).wait();
@@ -176,17 +139,8 @@ describe("ActivateVanityDomain", function () {
       )
     ).wait();
 
-    const domainStatus = await VNRS.getDomainStatus(
-      new Web3().eth.abi.encodeParameter(
-        "bytes32",
-        Web3.utils.fromAscii(defaultRecord.name)
-      )
-    );
-    await (
-      await VNRS.setCostPerCharacter(new BigNumber(3e18).toFixed(0))
-    ).wait();
-    const extendRes = await (await VNRS.extendDomainTime(td)).wait();
-
+    const aliceBal = await TERC20.balanceOf(defaultRecord.user);
+    const vnrsBal = await TERC20.balanceOf(vnrsAddr);
     expect(commitRegistrationResp.events[0].event).to.be.equal(
       "LogHashCommitted"
     );
@@ -196,9 +150,11 @@ describe("ActivateVanityDomain", function () {
     expect(JSON.stringify(aliceActivationResp.events)).to.be.contains(
       "LogUserActiveVanityRecord"
     );
-    expect(JSON.stringify(extendRes.events)).to.be.contains(
-      "LogUserActiveVanityRecord"
+    expect(new BigNumber(+aliceBal).shiftedBy(-18).toString()).to.be.equal(
+      "191.92"
     );
-    expect(domainStatus).to.be.equal(1);
+    expect(new BigNumber(+vnrsBal).shiftedBy(-18).toString()).to.be.equal(
+      "8.08"
+    );
   });
 });

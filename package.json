@@ -11,7 +11,7 @@
     "test": "TEST=true hardhat test",
     "test:dev": "chmod +x test_dev.sh && ./test_dev.sh",
     "dev:node": "hardhat node",
-    "coverage": "COVERAGE=true hardhat coverage",
+    "coverage": "yarn build && COVERAGE=true hardhat coverage",
     "lint:ts": "eslint '**/*.{js,ts}' --fix",
     "lint:sol": "npx solhint 'contracts/**/*.sol' --fix",
     "pretty": "npx prettier '**/*.{json,sol,md,ts}' --write",

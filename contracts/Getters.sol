@@ -41,7 +41,7 @@ contract Getters is Storage {
     /**
      * @return get fee charged per character on registration
      */
-    function getCostePerCharacter() external view returns (uint256) {
+    function getCostPerCharacter() external view returns (uint256) {
         return costPerChar;
     }
 

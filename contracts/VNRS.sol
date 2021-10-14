@@ -259,12 +259,7 @@ contract VNRS is Storage, Admin, Constants, Getters {
         );
         // deposit fee to pool
         if (feePool != address(0)) {
-            SafeERC20.safeTransferFrom(
-                IERC20(acceptedToken),
-                address(this),
-                feePool,
-                fee
-            );
+            SafeERC20.safeTransfer(IERC20(acceptedToken), feePool, fee);
         }
 
         record.status = RegisteredRecordStatus.Active;
@@ -298,7 +293,7 @@ contract VNRS is Storage, Admin, Constants, Getters {
         returns (uint256)
     {
         uint256 length = _getVanityNameLength(name);
-        return length.mul(costPerChar);
+        return costPerChar.mul(length);
     }
 
     function _isDomainExpired(bytes32 name) private view returns (bool) {
