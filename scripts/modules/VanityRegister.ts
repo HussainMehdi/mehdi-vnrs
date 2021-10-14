@@ -17,7 +17,11 @@ import {
   EIP712_REGISTRATION_STRUCT,
   EIP712_REGISTRATION_STRUCT_STRING,
 } from "../lib/constants";
-import { SignedSolidityVanityRecord, SolidityVanityRecord, VanityRecord } from "../lib/types";
+import {
+  SignedSolidityVanityRecord,
+  SolidityVanityRecord,
+  VanityRecord,
+} from "../lib/types";
 
 export class VanityRegister {
   private web3: Web3;
@@ -30,7 +34,9 @@ export class VanityRegister {
     this.address = address;
   }
 
-  public toSolidityByteVanityRecord(vanityRecord: SignedSolidityVanityRecord): string {
+  public toSolidityByteVanityRecord(
+    vanityRecord: SignedSolidityVanityRecord
+  ): string {
     const oa = this.web3.eth.abi.encodeParameters(
       EIP712_REGISTRATION_SIGNATURE_TYPE_ARR,
       [
@@ -53,7 +59,9 @@ export class VanityRegister {
     };
   }
 
-  public async getSignedVanityStruct(vrs: SolidityVanityRecord): Promise<SignedSolidityVanityRecord> {
+  public async getSignedVanityStruct(
+    vrs: SolidityVanityRecord
+  ): Promise<SignedSolidityVanityRecord> {
     const data = {
       types: {
         EIP712Domain: EIP712_DOMAIN_STRUCT,
@@ -80,7 +88,9 @@ export class VanityRegister {
 
   // ============ Private Helper Functions ============
 
-  public vanityRecordToSolidity(vanityRecord: VanityRecord): SolidityVanityRecord {
+  public vanityRecordToSolidity(
+    vanityRecord: VanityRecord
+  ): SolidityVanityRecord {
     return {
       name: this.getVanityRegistrationName(vanityRecord),
       salt: vanityRecord.salt.toFixed(0),

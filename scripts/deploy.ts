@@ -1,5 +1,9 @@
 import { ethers } from "hardhat";
-import { getContractStorage, saveDeployedContracts, storeContract } from './lib/contractStorage';
+import {
+  getContractStorage,
+  saveDeployedContracts,
+  storeContract,
+} from "./lib/contractStorage";
 import { initDefaults, networkChainId } from "./lib/globals";
 
 export async function main() {

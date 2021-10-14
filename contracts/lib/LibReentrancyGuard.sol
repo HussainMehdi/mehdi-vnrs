@@ -11,7 +11,7 @@ contract LibReentrancyGuard {
 
     uint256 private _STATUS_;
 
-    constructor () {
+    constructor() {
         _STATUS_ = NOT_ENTERED;
     }
 
@@ -22,4 +22,3 @@ contract LibReentrancyGuard {
         _STATUS_ = NOT_ENTERED;
     }
 }
-

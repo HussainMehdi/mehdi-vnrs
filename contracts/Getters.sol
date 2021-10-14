@@ -51,6 +51,7 @@ contract Getters is Storage {
     function getFeePercentage() external view returns (uint256) {
         return feeRatio;
     }
+
     /**
      * @return get max expiration allowed per vanity domain registration
      */
