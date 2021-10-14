@@ -1,6 +1,8 @@
 //SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.0;
 import {SafeMath} from "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "hardhat/console.sol";
 
@@ -39,6 +41,13 @@ contract VNRS {
         uint256 activeTime;
         uint256 expiration;
         RegisteredRecordStatus status;
+    }
+
+    struct UserActiveVanityRecord {
+        uint256 lockedAmount;
+        uint256 feePaid;
+        uint256 activeTime;
+        uint256 expiration;
     }
 
     // ============ Constants ============
@@ -84,13 +93,18 @@ contract VNRS {
     bytes32 public domainHashEIP712;
 
     // ============ Mutable Storage ============
-
+    address public acceptedToken;
+    address public feePool;
     uint256 public maxAllowedGas = 209004562;
     uint256 public commitGraceBlocks = 20;
     uint256 public activationGraceBlocks = 20;
+    uint256 public costPerChar = 2e18;
+    uint256 public feeRatio = 0.01e18; // default to 1%
     mapping(bytes32 => uint256) public pendingCommits;
     mapping(bytes32 => uint256) private registrationRequests;
     mapping(bytes32 => RegisteredVanityRecord) public registeredVanityRecords;
+    mapping(address => mapping(bytes32 => UserActiveVanityRecord))
+        public userActiveVanityRecords;
 
     // ============ Modifiers ============
     modifier resonableGas() {
@@ -99,8 +113,7 @@ contract VNRS {
     }
 
     // ============ Constructor ============
-
-    constructor(uint256 chainId) {
+    constructor(uint256 chainId, address _acceptedToken) {
         domainHashEIP712 = keccak256(
             abi.encode(
                 EIP712_DOMAIN_SEPARATOR_SCHEMA_HASH,
@@ -110,10 +123,23 @@ contract VNRS {
                 address(this)
             )
         );
+        acceptedToken = _acceptedToken;
+    }
+
+    // ============ Public Functions ============
+    function getDomainStatus(bytes32 name)
+        public
+        view
+        returns (RegisteredRecordStatus)
+    {
+        RegisteredVanityRecord memory record = registeredVanityRecords[name];
+        return
+            record.expiration < block.timestamp
+                ? RegisteredRecordStatus.Expired
+                : record.status;
     }
 
     // ============ External Functions ============
-
     function activateVanityDomain(bytes32 name) external {
         RegisteredVanityRecord memory record = registeredVanityRecords[name];
         require(
@@ -128,11 +154,7 @@ contract VNRS {
             record.activeTime.add(activationGraceBlocks) < block.number,
             "not ready for registration"
         );
-        // fee calculation and locking here
-
-        record.status = RegisteredRecordStatus.Active;
-        registeredVanityRecords[name] = record;
-        registrationRequests[name] = 0;
+        _settleActivation(name, record);
     }
 
     function registerVanityDomain(bytes calldata data) external {
@@ -161,6 +183,48 @@ contract VNRS {
 
     function commitRegistration(bytes32 hash) public {
         pendingCommits[hash] = block.number;
+    }
+
+    function claimExpiredDomainAmount(bytes32 name) external {
+        UserActiveVanityRecord memory record = userActiveVanityRecords[
+            msg.sender
+        ][name];
+        require(record.activeTime != 0, "domain is not registered by user");
+        require(record.expiration < block.timestamp, "record is not expired");
+        SafeERC20.safeTransfer(
+            IERC20(acceptedToken),
+            msg.sender,
+            record.lockedAmount
+        );
+        userActiveVanityRecords[msg.sender][name] = UserActiveVanityRecord({
+            lockedAmount: 0,
+            feePaid: 0,
+            activeTime: 0,
+            expiration: 0
+        });
+    }
+
+    function extendDomainTime(bytes calldata data) external {
+        RegistrationData memory rd = abi.decode(data, (RegistrationData));
+        _verifySignature(rd.vr, rd.signature);
+        RegisteredVanityRecord memory record = registeredVanityRecords[
+            rd.vr.name
+        ];
+        require(record.user == msg.sender, "extender is not same as registrar");
+        require(
+            record.status == RegisteredRecordStatus.Active,
+            "registration not active or expired"
+        );
+        registeredVanityRecords[rd.vr.name] = RegisteredVanityRecord({
+            name: rd.vr.name,
+            user: rd.vr.user,
+            activeTime: block.number,
+            expiration: rd.vr.expiration.add(
+                registeredVanityRecords[rd.vr.name].expiration
+            ),
+            status: RegisteredRecordStatus.Open
+        });
+        _settleActivation(rd.vr.name, record);
     }
 
     // ============ Helper Functions ============
@@ -198,12 +262,66 @@ contract VNRS {
             );
     }
 
+    function _settleActivation(
+        bytes32 name,
+        RegisteredVanityRecord memory record
+    ) private {
+        // fee calculation and locking
+        uint256 price = _calculateNameRegistrationCost(name);
+        uint256 fee = price.mul(feeRatio).div(1e18);
+        uint256 amount;
+        UserActiveVanityRecord memory useracr = userActiveVanityRecords[
+            msg.sender
+        ][name];
+        if (useracr.activeTime == 0) {
+            userActiveVanityRecords[msg.sender][name] = UserActiveVanityRecord({
+                lockedAmount: price,
+                feePaid: fee,
+                activeTime: block.number,
+                expiration: record.expiration
+            });
+            amount = price;
+        } else {
+            if (price > useracr.lockedAmount) {
+                amount = price.sub(useracr.lockedAmount);
+            }
+            userActiveVanityRecords[msg.sender][name] = UserActiveVanityRecord({
+                lockedAmount: price.add(amount),
+                feePaid: useracr.feePaid.add(fee),
+                activeTime: block.number,
+                expiration: record.expiration
+            });
+        }
+
+        amount = amount.add(fee);
+        // deposit amount from user to VNRS
+        SafeERC20.safeTransferFrom(
+            IERC20(acceptedToken),
+            msg.sender,
+            address(this),
+            amount
+        );
+        // deposit fee to pool
+        if (feePool != address(0)) {
+            SafeERC20.safeTransferFrom(
+                IERC20(acceptedToken),
+                address(this),
+                feePool,
+                fee
+            );
+        }
+
+        record.status = RegisteredRecordStatus.Active;
+        registeredVanityRecords[name] = record;
+        registrationRequests[name] = 0;
+    }
+
     function _getVanityNameLength(bytes32 name) private pure returns (uint256) {
         // could be done by binary search to reduce compute, but that will require more memory
         uint256 length = 0;
         for (uint256 i = 0; i < 32; i++) {
             if (name[i] != 0) {
-                length = i;
+                length++;
             } else {
                 break;
             }
@@ -211,9 +329,19 @@ contract VNRS {
         return length;
     }
 
+    function _calculateNameRegistrationCost(bytes32 name)
+        private
+        view
+        returns (uint256)
+    {
+        uint256 length = _getVanityNameLength(name);
+        return length.mul(costPerChar);
+    }
+
     function _isDomainExpired(bytes32 name) private view returns (bool) {
         RegisteredVanityRecord memory record = registeredVanityRecords[name];
-        return record.status != RegisteredRecordStatus.Active
-        || record.expiration < block.timestamp;
+        return
+            record.status != RegisteredRecordStatus.Active ||
+            record.expiration < block.timestamp;
     }
 }
