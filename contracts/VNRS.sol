@@ -3,108 +3,19 @@ pragma solidity ^0.8.0;
 import {SafeMath} from "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Storage} from "./Storage.sol";
+import {Constants} from "./Constants.sol";
+import {Admin} from "./Admin.sol";
+import {Getters} from "./Getters.sol";
 
 import "hardhat/console.sol";
 
-contract VNRS {
+contract VNRS is Storage, Admin, Constants, Getters {
     using SafeMath for uint256;
 
-    // ============ Enums ============
-    enum RegisteredRecordStatus {
-        Open,
-        Active,
-        Expired
-    }
-
-    // ============ Structs ============
-    struct Signature {
-        bytes32 r;
-        bytes32 s;
-        bytes2 v;
-    }
-
-    struct RegistrationData {
-        VanityRecord vr;
-        Signature signature;
-    }
-
-    struct VanityRecord {
-        bytes32 name;
-        address user;
-        uint256 expiration;
-        uint256 salt;
-    }
-
-    struct RegisteredVanityRecord {
-        bytes32 name;
-        address user;
-        uint256 activeTime;
-        uint256 expiration;
-        RegisteredRecordStatus status;
-    }
-
-    struct UserActiveVanityRecord {
-        uint256 lockedAmount;
-        uint256 feePaid;
-        uint256 activeTime;
-        uint256 expiration;
-    }
-
-    // ============ Constants ============
-
-    // EI91 header for EIP712 prefix
-    bytes2 private constant EI91_HEADER = 0x1901;
-
-    // EIP712 Domain Name value
-    string private constant EIP712_DOMAIN_NAME = "VanityRegistry";
-
-    // EIP712 Domain Version value
-    string private constant EIP712_DOMAIN_VERSION = "1.0";
-
-    // Hash of the EIP712 Domain Separator Schema
-    bytes32 private constant EIP712_DOMAIN_SEPARATOR_SCHEMA_HASH =
-        keccak256(
-            abi.encodePacked(
-                "EIP712Domain(",
-                "string name,",
-                "string version,",
-                "uint256 chainId,",
-                "address verifyingContract",
-                ")"
-            )
-        );
-
-    // Hash of the EIP712 VanityRecord struct
-    bytes32 private constant EIP712_REGISTRATION_STRUCT_SCHEMA_HASH =
-        keccak256(
-            abi.encodePacked(
-                "VanityRegistry(",
-                "bytes32 name,",
-                "address user,",
-                "uint256 expiration,",
-                "uint256 salt",
-                ")"
-            )
-        );
-
     // ============ Immutable Storage ============
-
     // Hash of the EIP712 Domain Separator data
     bytes32 public domainHashEIP712;
-
-    // ============ Mutable Storage ============
-    address public acceptedToken;
-    address public feePool;
-    uint256 public maxAllowedGas = 209004562;
-    uint256 public commitGraceBlocks = 20;
-    uint256 public activationGraceBlocks = 20;
-    uint256 public costPerChar = 2e18;
-    uint256 public feeRatio = 0.01e18; // default to 1%
-    mapping(bytes32 => uint256) public pendingCommits;
-    mapping(bytes32 => uint256) private registrationRequests;
-    mapping(bytes32 => RegisteredVanityRecord) public registeredVanityRecords;
-    mapping(address => mapping(bytes32 => UserActiveVanityRecord))
-        public userActiveVanityRecords;
 
     // ============ Modifiers ============
     modifier resonableGas() {
@@ -140,7 +51,11 @@ contract VNRS {
     }
 
     // ============ External Functions ============
-    function activateVanityDomain(bytes32 name) external {
+    function activateVanityDomain(bytes32 name)
+        external
+        nonReentrant
+        resonableGas
+    {
         RegisteredVanityRecord memory record = registeredVanityRecords[name];
         require(
             record.user == msg.sender,
@@ -157,10 +72,18 @@ contract VNRS {
         _settleActivation(name, record);
     }
 
-    function registerVanityDomain(bytes calldata data) external {
+    function registerVanityDomain(bytes calldata data)
+        external
+        nonReentrant
+        resonableGas
+    {
         RegistrationData memory rd = abi.decode(data, (RegistrationData));
         bytes32 hash = _verifySignature(rd.vr, rd.signature);
         uint256 rrt = registrationRequests[rd.vr.name];
+        require(
+            rd.vr.expiration <= maxExpirationAllowed,
+            "registration exceeds max allowed expiration time"
+        );
         require(
             pendingCommits[hash].add(commitGraceBlocks) > block.number,
             "committed domain request expired"
@@ -185,7 +108,11 @@ contract VNRS {
         pendingCommits[hash] = block.number;
     }
 
-    function claimExpiredDomainAmount(bytes32 name) external {
+    function claimExpiredDomainAmount(bytes32 name)
+        external
+        nonReentrant
+        resonableGas
+    {
         UserActiveVanityRecord memory record = userActiveVanityRecords[
             msg.sender
         ][name];
@@ -204,12 +131,20 @@ contract VNRS {
         });
     }
 
-    function extendDomainTime(bytes calldata data) external {
+    function extendDomainTime(bytes calldata data)
+        external
+        nonReentrant
+        resonableGas
+    {
         RegistrationData memory rd = abi.decode(data, (RegistrationData));
         _verifySignature(rd.vr, rd.signature);
         RegisteredVanityRecord memory record = registeredVanityRecords[
             rd.vr.name
         ];
+        require(
+            rd.vr.expiration <= maxExpirationAllowed,
+            "registration exceeds max allowed expiration time"
+        );
         require(record.user == msg.sender, "extender is not same as registrar");
         require(
             record.status == RegisteredRecordStatus.Active,
