@@ -80,6 +80,7 @@ contract VNRS is Storage, Admin, Constants, Getters {
         RegistrationData memory rd = abi.decode(data, (RegistrationData));
         bytes32 hash = _verifySignature(rd.vr, rd.signature);
         uint256 rrt = registrationRequests[rd.vr.name];
+        require(rd.vr.user == msg.sender, "struct user is not msg.sender");
         require(
             rd.vr.expiration <= maxExpirationAllowed,
             "registration exceeds max allowed expiration time"
@@ -92,7 +93,14 @@ contract VNRS is Storage, Admin, Constants, Getters {
             _isDomainExpired(rd.vr.name),
             "already registered or not expired"
         );
-        if (rrt == 0 || pendingCommits[hash] < rrt) {
+        if (
+            rrt == 0 ||
+            pendingCommits[hash] < rrt ||
+            registeredVanityRecords[rd.vr.name].activeTime.add(
+                commitGraceBlocks
+            ) <
+            block.number
+        ) {
             registrationRequests[rd.vr.name] = pendingCommits[hash];
             registeredVanityRecords[rd.vr.name] = RegisteredVanityRecord({
                 name: rd.vr.name,
@@ -112,7 +120,10 @@ contract VNRS is Storage, Admin, Constants, Getters {
     }
 
     function commitRegistration(bytes32 hash) public {
-        require(pendingCommits[hash] == 0, "registration hash already committed");
+        require(
+            pendingCommits[hash] == 0,
+            "registration hash already committed"
+        );
         pendingCommits[hash] = block.number;
         emit LogHashCommitted(msg.sender, hash);
     }
