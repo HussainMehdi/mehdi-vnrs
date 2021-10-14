@@ -1,12 +1,21 @@
 import Web3 from "web3";
 import { ethers } from "hardhat";
 
-import { combineHexStrings, stripHexPrefix } from "../lib/utils";
+import {
+  addressToBytes32,
+  combineHexStrings,
+  getEIP712Hash,
+  hashString,
+  stripHexPrefix,
+} from "../lib/utils";
 import {
   EIP712_DOMAIN_NAME,
+  EIP712_DOMAIN_STRING,
   EIP712_DOMAIN_STRUCT,
   EIP712_DOMAIN_VERSION,
+  EIP712_REGISTRATION_SIGNATURE_TYPE_ARR,
   EIP712_REGISTRATION_STRUCT,
+  EIP712_REGISTRATION_STRUCT_STRING,
 } from "../lib/constants";
 
 export class VanityRegister {
@@ -20,13 +29,18 @@ export class VanityRegister {
     this.address = address;
   }
 
-  public toSolidityByteVanity(vr: any): string {
-    const vrData = this.web3.eth.abi.encodeParameters(
-      EIP712_REGISTRATION_STRUCT.map((arg) => arg.type),
-      EIP712_REGISTRATION_STRUCT.map((arg) => vr[arg.name])
+  public toSolidityByteVanityRecord(vanityRecord: any): any {
+    const oa = this.web3.eth.abi.encodeParameters(
+      EIP712_REGISTRATION_SIGNATURE_TYPE_ARR,
+      [
+        vanityRecord.name,
+        vanityRecord.user,
+        vanityRecord.expiration,
+        vanityRecord.salt,
+      ]
     );
-    const signatureDataA = vr.typedSignature + "0".repeat(60);
-    return combineHexStrings(vrData, signatureDataA);
+    const signatureDataA = vanityRecord.typedSignature + "0".repeat(60);
+    return combineHexStrings(oa, signatureDataA);
   }
 
   private getDomainData() {
@@ -61,5 +75,51 @@ export class VanityRegister {
       ...vrs,
       typedSignature: `0x${stripHexPrefix(response)}00`,
     };
+  }
+
+  // ============ Private Helper Functions ============
+
+  public vanityRecordToSolidity(vanityRecord: any): any {
+    return {
+      name: this.getVanityRegistrationName(vanityRecord),
+      salt: vanityRecord.salt.toFixed(0),
+      user: vanityRecord.user,
+      expiration: vanityRecord.expiration.toFixed(0),
+    };
+  }
+
+  public getVanityRegistrationName(vanityRecord: any): string {
+    return Web3.utils.asciiToHex(vanityRecord.name);
+  }
+
+  // ============ Hashing Functions ============
+
+  /**
+   * Returns the final signable EIP712 hash for approving an vanityRecord.
+   */
+  public getVanityRecordHash(vanityRecord: any): string {
+    const structHash = Web3.utils.soliditySha3(
+      { t: "bytes32", v: hashString(EIP712_REGISTRATION_STRUCT_STRING) || "" },
+      { t: "bytes32", v: this.getVanityRegistrationName(vanityRecord) },
+      { t: "bytes32", v: addressToBytes32(vanityRecord.user) },
+      { t: "uint256", v: vanityRecord.expiration.toFixed(0) },
+      { t: "uint256", v: vanityRecord.salt.toFixed(0) }
+    );
+    return structHash ? getEIP712Hash(this.getDomainHash(), structHash) : "";
+  }
+
+  /**
+   * Returns the EIP712 domain separator hash.
+   */
+  public getDomainHash(): string {
+    return (
+      Web3.utils.soliditySha3(
+        { t: "bytes32", v: hashString(EIP712_DOMAIN_STRING) || "" },
+        { t: "bytes32", v: hashString(EIP712_DOMAIN_NAME) || "" },
+        { t: "bytes32", v: hashString(EIP712_DOMAIN_VERSION) || "" },
+        { t: "uint256", v: `${this.networkId}` },
+        { t: "bytes32", v: addressToBytes32(this.address) }
+      ) || ""
+    );
   }
 }
