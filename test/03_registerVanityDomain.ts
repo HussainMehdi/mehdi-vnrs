@@ -273,4 +273,34 @@ describe("RegisterVanityDomain", function () {
     }
     expect(err).to.be.contains("committed domain request expired");
   });
+
+  it("should fail if non-reasonable gas is provided", async () => {
+    let err = "";
+    try {
+      defaultRecord.user = signers[0].address;
+      const offchainHash = vreg.getVanityRecordHash(defaultRecord);
+      const VNRS = (await ethers.getContractFactory("VNRS")).attach(vnrsAddr);
+      const commitRegistrationResp = await (
+        await VNRS.commitRegistration(offchainHash)
+      ).wait();
+
+      const solidityStruct = vreg.vanityRecordToSolidity(defaultRecord);
+      const typedSig = await vreg.getSignedVanityStruct(solidityStruct);
+      const td = vreg.toSolidityByteVanityRecord(typedSig);
+      expect(commitRegistrationResp.events[0].event).to.be.equal(
+        "LogHashCommitted"
+      );
+
+      await VNRS.setMaxAllowedGas("200");
+      await (
+        await VNRS.registerVanityDomain(td, {
+          gasPrice: 99999462524493,
+          gasLimit: 30000000,
+        })
+      ).wait();
+    } catch (e: any) {
+      err = e;
+    }
+    expect(err.toString()).to.be.contains("max allowed gas exceeded");
+  });
 });
